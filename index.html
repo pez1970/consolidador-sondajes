@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Consolidador CSV de Sondajes</title>
+  <style>
+    :root{
+      --bg:#0f172a; /* slate-900 */
+      --panel:#111827; /* gray-900 */
+      --card:#0b1220; /* custom dark */
+      --muted:#94a3b8; /* slate-400 */
+      --text:#e5e7eb; /* gray-200 */
+      --brand:#06b6d4; /* cyan-500 */
+      --ok:#22c55e; /* green-500 */
+      --bad:#ef4444; /* red-500 */
+      --warn:#f59e0b; /* amber-500 */
+      --border:#1f2937; /* gray-800 */
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{ margin:0; background:linear-gradient(180deg,var(--bg),#0b1220 60%); color:var(--text); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial; }
+    header{ padding:24px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+    .h1{font-weight:700; letter-spacing:.3px}
+    .brand{color:var(--brand)}
+    main{max-width:1200px; margin:24px auto; padding:0 16px}
+    .grid{display:grid; gap:16px}
+    @media(min-width:1000px){.grid{grid-template-columns:420px 1fr}}
+    .card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.25)}
+
+    /* Upload panel */
+    .dropzone{ border:2px dashed #1f3b57; border-radius:16px; padding:20px; text-align:center; background:linear-gradient(180deg,#0b1627, #0b1220); transition:.2s ease; cursor:pointer; }
+    .dropzone.drag{border-color:var(--brand); background:linear-gradient(180deg,#0a1f32,#0b1220)}
+    .muted{color:var(--muted)}
+    .row{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+    .row > *{flex:1}
+    label{font-size:.9rem; color:var(--muted)}
+    input[type=text]{ width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:#0a1220; color:var(--text); }
+    input[type=file]{display:none}
+    .btn{appearance:none; border:none; border-radius:12px; padding:10px 14px; font-weight:600; cursor:pointer; transition:.2s; background:#0b2237; color:#c7e7ef; border:1px solid #12314d}
+    .btn:hover{transform:translateY(-1px); box-shadow:0 6px 16px rgba(0,0,0,.25)}
+    .btn.primary{background:linear-gradient(180deg,#0ea5b1,#0a6a75); border-color:#0ea5b1; color:#ecfeff}
+    .btn.danger{background:linear-gradient(180deg,#7f1d1d,#450a0a); color:#fecaca; border-color:#7f1d1d}
+    .pill{display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; background:#0a2233; border:1px solid #12314d; color:#9bd8e7; font-size:.8rem}
+    .stat{display:flex; gap:12px; align-items:center}
+
+    table{width:100%; border-collapse:collapse; border-radius:12px; overflow:hidden}
+    th,td{border-bottom:1px solid var(--border); padding:10px; text-align:left; font-size:.9rem}
+    th{background:#0a1627; position:sticky; top:0; z-index:1}
+    tbody tr:hover{background:#0c1829}
+    .right{text-align:right}
+    .center{text-align:center}
+
+    .logs{height:220px; background:#0a0f1c; border:1px solid var(--border); padding:10px; border-radius:12px; overflow:auto; font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:.9rem}
+    .log-ok{color:var(--ok)} .log-warn{color:var(--warn)} .log-err{color:var(--bad)}
+
+    .progress{height:10px; background:#0b1627; border:1px solid var(--border); border-radius:999px; overflow:hidden}
+    .progress > div{height:100%; width:0%; background:linear-gradient(90deg,#06b6d4,#22d3ee); transition:width .2s}
+
+    .filters{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+    select{width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:#0a1220; color:#text}
+    .badge-err{background:#3b0a0a; color:#fecaca; padding:2px 8px; border-radius:999px; border:1px solid #7f1d1d}
+    .small{font-size:.85rem}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="h1" style="font-size:1.25rem">Consolidador <span class="brand">CSV de Sondajes</span> · Single‑File</div>
+      <div class="muted small">Funciona 100% en el navegador · Sin backend · Soporta UTF‑8/Latin‑1 · Hasta 10MB/archivo</div>
+    </div>
+    <div class="row" style="width:auto; gap:8px">
+      <button id="btnConsolidar" class="btn primary">Consolidar Archivos</button>
+      <button id="btnDescargarCSV" class="btn" disabled>Descargar CSV</button>
+      <button id="btnDescargarTXT" class="btn" disabled>Reporte Validación</button>
+      <button id="btnLimpiar" class="btn danger">Limpiar Todo</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- Panel de carga -->
+    <section class="card">
+      <h3 style="margin:4px 0 12px">Carga de archivos</h3>
+      <div class="row" style="margin-bottom:10px">
+        <div style="flex:2">
+          <label>Nombre del Usuario (CreatedBy)</label>
+          <input id="inputUsuario" type="text" placeholder="Ej: Pablo Elgueta"/>
+        </div>
+        <div style="flex:1">
+          <label>Selección de archivos</label>
+          <div class="row">
+            <label class="btn" for="fileInput">Elegir CSV...</label>
+            <input id="fileInput" type="file" accept=".csv" multiple>
+            <span class="pill"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Drag & Drop</span>
+          </div>
+        </div>
+      </div>
+      <div id="dropzone" class="dropzone">
+        <div style="font-weight:600">Suelta aquí tus CSV</div>
+        <div class="muted small">o haz clic en "Elegir CSV..."</div>
+      </div>
+
+      <div style="margin-top:16px" class="row">
+        <div class="stat"><span class="pill">Archivos: <b id="statArchivos">0</b></span></div>
+        <div class="stat"><span class="pill">Registros: <b id="statRegistros">0</b></span></div>
+        <div class="stat"><span class="pill">Con errores: <b id="statErrores">0</b></span></div>
+      </div>
+
+      <div style="margin-top:12px; max-height:260px; overflow:auto; border:1px solid var(--border); border-radius:12px">
+        <table>
+          <thead>
+            <tr>
+              <th>Archivo</th>
+              <th class="center">Tamaño</th>
+              <th class="center">Registros</th>
+              <th>Fecha carga</th>
+              <th>Estado</th>
+              <th class="right">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="filesTbody"></tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="progress"><div id="progressBar"></div></div>
+      </div>
+    </section>
+
+    <!-- Panel derecho: validaciones y vista previa -->
+    <section class="card">
+      <h3 style="margin:4px 0 12px">Validaciones & Vista previa</h3>
+
+      <div class="filters" style="margin-bottom:10px">
+        <div>
+          <label>Filtro por AREA (opcional)</label>
+          <select id="filterArea"><option value="">(Todos)</option></select>
+        </div>
+        <div>
+          <label>Filtro por FY (opcional)</label>
+          <select id="filterFY"><option value="">(Todos)</option></select>
+        </div>
+        <div>
+          <label>Filtro por PLAN (opcional)</label>
+          <select id="filterPlan"><option value="">(Todos)</option></select>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start">
+        <div>
+          <div class="logs" id="logs"></div>
+          <div style="margin-top:10px">
+            <h4 style="margin:4px 0">Vista previa archivo seleccionado (20 registros)</h4>
+            <div style="max-height:200px; overflow:auto; border:1px solid var(--border); border-radius:12px">
+              <table>
+                <thead id="filePreviewThead"></thead>
+                <tbody id="filePreviewTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div style="max-height:300px; overflow:auto; border:1px solid var(--border); border-radius:12px">
+          <table>
+            <thead id="previewThead"></thead>
+            <tbody id="previewTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================
+       CSV Headers & Const
+  ===================== -->
+  <script>
+    const REQUIRED_HEADERS = [
+      'SONDAJE','ESTE','NORTE','ELEVACION','FY','AREA','TIPO_PERFORACION','METROS_DDH','METROS_RC','DIAMETRO_PERFORACION','AZIMUT','INCLINACION','EXPANSION','ID_REC_ANTIGUO','TIPOS_PRUEBAS','Instrumentacion','DIAMETRO_HABILITACION','OBJETIVO','PRIORIDAD','USER_CHANGE','DATE_UPDATE','CHANGE_TYPE','PLAN'
+    ];
+    const METADATA_HEADERS = ['Source','Created','CreatedBy','UniqueID','Modify','ModifiedBy'];
+    const CONSOLIDATED_HEADERS = [...METADATA_HEADERS, ...REQUIRED_HEADERS];
+    const PREVIEW_COLS = ['SONDAJE','ESTE','NORTE','ELEVACION','FY','AREA','TIPO_PERFORACION','METROS_DDH','METROS_RC','AZIMUT','INCLINACION'];
+  </script>
+
+  <!-- ===================
+       Utilidades
+  ===================== -->
+  <script>
+    const $ = sel => document.querySelector(sel);
+    const fmtBytes = n => n < 1024 ? `${n} B` : n < 1024**2 ? `${(n/1024).toFixed(1)} KB` : `${(n/1024**2).toFixed(2)} MB`;
+    const isoNow = () => new Date().toISOString();
+    const pad = (n, w=3) => String(n).padStart(w,'0');
+
+    // UniqueID: YYYYMMDD-HHMMSS-### (secuencial por sesión)
+    let UID_PREFIX = (()=>{
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = pad(d.getMonth()+1,2);
+      const dd = pad(d.getDate(),2);
+      const HH = pad(d.getHours(),2);
+      const MM = pad(d.getMinutes(),2);
+      const SS = pad(d.getSeconds(),2);
+      return `${yyyy}${mm}${dd}-${HH}${MM}${SS}`;
+    })();
+    let UID_SEQ = 0;
+    const nextUID = () => `${UID_PREFIX}-${pad(++UID_SEQ,3)}`;
+
+    function download(filename, content, mime='text/plain;charset=utf-8'){ 
+      const blob = new Blob([content], {type:mime});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    }
+
+    function log(msg, type='info'){
+      const el = document.createElement('div');
+      if(type==='ok') el.className='log-ok';
+      else if(type==='warn') el.className='log-warn';
+      else if(type==='err') el.className='log-err';
+      el.textContent = msg;
+      $('#logs').appendChild(el);
+      $('#logs').scrollTop = $('#logs').scrollHeight;
+    }
+
+    function setProgress(p){ $('#progressBar').style.width = `${Math.max(0,Math.min(100,p))}%`; }
+  </script>
+
+  <!-- ===================
+       Decodificación & Parser CSV (UTF-8 / Latin-1 / Win-1252)
+  ===================== -->
+  <script>
+    async function readAsTextWithEncodings(file){
+      const buf = await file.arrayBuffer();
+      const encodings = ['utf-8','iso-8859-1','windows-1252'];
+      for(const enc of encodings){
+        try{
+          const td = new TextDecoder(enc, {fatal:false});
+          const txt = td.decode(new Uint8Array(buf));
+          if(enc==='utf-8' && /\uFFFD/.test(txt)) continue;
+          return txt;
+        }catch{ }
+      }
+      return new TextDecoder('utf-8').decode(new Uint8Array(buf));
+    }
+
+    // Parser CSV simple compatible RFC4180
+    function parseCSV(text, {header=true, skipEmptyLines='greedy'}={}){
+      const rows=[]; let i=0, s=text; const len=s.length; let row=[]; let cell=''; let inQ=false;
+      function pushCell(){ row.push(cell); cell=''; }
+      function pushRow(){ rows.push(row); row=[]; }
+      while(i<len){
+        const ch=s[i++];
+        if(inQ){
+          if(ch==='"'){
+            if(s[i]==='"'){ cell+='"'; i++; } else { inQ=false; }
+          } else { cell+=ch; }
+        } else {
+          if(ch==='"') inQ=true;
+          else if(ch===','){ pushCell(); }
+          else if(ch==='\n') { pushCell(); pushRow(); }
+          else if(ch==='\r'){ if(s[i]==='\n'){ i++; } pushCell(); pushRow(); }
+          else { cell+=ch; }
+        }
+      }
+      if(inQ) throw new Error('CSV inválido: comillas no cerradas');
+      if(cell!=='' || row.length>0){ pushCell(); pushRow(); }
+
+      const isEmptyRow = r => r.every(c => String(c).trim()==='');
+      const cleaned = rows.filter(r=>{
+        if(skipEmptyLines==='greedy') return !isEmptyRow(r);
+        if(skipEmptyLines) return r.length>1|| (r.length===1 && r[0].trim()!=='');
+        return true;
+      });
+      if(cleaned.length===0) return {headers:[], rows:[]};
+      if(header){
+        const headers = cleaned[0].map(h=>h.trim());
+        const data = cleaned.slice(1).map(r=>{
+          const obj={};
+          headers.forEach((h,idx)=>{ obj[h]= r[idx]===undefined?'':r[idx]; });
+          return obj;
+        });
+        return {headers, rows:data};
+      } else {
+        return {headers:[], rows:cleaned};
+      }
+    }
+  </script>
+
+  <!-- ===================
+       Estado de la app
+  ===================== -->
+  <script>
+    const state = {
+      userName: '',
+      files: [], // {file, name, size, loadedAt, rowsCount, status, errors:[], data:[]}
+      consolidated: null, // {headers, rows}
+      validationReport: '',
+      filters: {AREA:'', FY:'', PLAN:''},
+    };
+
+    function resetAll(){
+      state.userName=''; state.files=[]; state.consolidated=null; state.validationReport='';
+      UID_SEQ=0; UID_PREFIX = (()=>{ const d=new Date(); return `${d.getFullYear()}${pad(d.getMonth()+1,2)}${pad(d.getDate(),2)}-${pad(d.getHours(),2)}${pad(d.getMinutes(),2)}${pad(d.getSeconds(),2)}`; })();
+      $('#inputUsuario').value='';
+      $('#filesTbody').innerHTML='';
+      $('#previewThead').innerHTML='';
+      $('#previewTbody').innerHTML='';
+      $('#filePreviewThead').innerHTML='';
+      $('#filePreviewTbody').innerHTML='';
+      $('#logs').innerHTML='';
+      $('#btnDescargarCSV').disabled=true; $('#btnDescargarTXT').disabled=true;
+      $('#statArchivos').textContent='0'; $('#statRegistros').textContent='0'; $('#statErrores').textContent='0';
+      setProgress(0);
+      for(const id of ['filterArea','filterFY','filterPlan']){ const s=$("#"+id); s.innerHTML='<option value="">(Todos)</option>'; }
+      log('Estado reiniciado. Carga nuevos archivos.','ok');
+    }
+  </script>
+
+  <!-- ===================
+       Carga & Validación
+  ===================== -->
+  <script>
+    async function handleFiles(fileList){
+      const user = $('#inputUsuario').value.trim();
+      if(!user){ log('⚠️ Debes ingresar el Nombre del Usuario (CreatedBy) antes de cargar archivos.','warn'); }
+      const files = Array.from(fileList || []);
+      if(files.length===0) return;
+
+      let processed=0; setProgress(0);
+      for(const file of files){
+        if(!/\.csv$/i.test(file.name)) { log(`⛔ Archivo ignorado (no .csv): ${file.name}`,'err'); continue; }
+        if(file.size>10*1024*1024){ log(`⛔ ${file.name}: excede 10MB`,'err'); continue; }
+
+        const rec = {file, name:file.name, size:file.size, loadedAt:new Date(), rowsCount:0, status:'Cargando...', errors:[], data:[]};
+        state.files.push(rec); renderFiles();
+
+        try{
+          const text = await readAsTextWithEncodings(file);
+          const {headers, rows} = parseCSV(text, {header:true, skipEmptyLines:'greedy'});
+
+          // Validar headers exactos (22 columnas)
+          const okLen = headers.length===REQUIRED_HEADERS.length;
+          const okNames = okLen && REQUIRED_HEADERS.every((h,idx)=> h===headers[idx]);
+          if(!okLen || !okNames){
+            rec.status = 'Error en encabezados';
+            rec.errors.push(`Encabezados inválidos. Esperado (${REQUIRED_HEADERS.length}):\n${REQUIRED_HEADERS.join(', ')}\nEncontrado (${headers.length}):\n${headers.join(', ')}`);
+            log(`⛔ ${file.name}: encabezados inválidos.`, 'err');
+          } else {
+            rec.data = rows;
+            rec.rowsCount = rows.length;
+            rec.status = 'OK';
+            log(`✔️ ${file.name}: ${rows.length} registros cargados.`, 'ok');
+          }
+        } catch(e){
+          rec.status='Error de parseo'; rec.errors.push(String(e)); log(`⛔ ${file.name}: ${e.message || e}`, 'err');
+        }
+
+        processed++; setProgress(Math.round(processed/files.length*100));
+        renderFiles();
+      }
+
+      updateStats();
+      refreshFilterValuesFromFiles();
+    }
+
+    function renderFiles(){
+      const tbody = $('#filesTbody'); tbody.innerHTML='';
+      state.files.forEach((rec,idx)=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML=`
+          <td><div style="font-weight:600">${rec.name}</div><div class="muted small">Source</div></td>
+          <td class="center">${fmtBytes(rec.size)}</td>
+          <td class="center">${rec.rowsCount}</td>
+          <td>${rec.loadedAt ? new Date(rec.loadedAt).toLocaleString() : '-'}</td>
+          <td>${rec.status} ${rec.errors.length?`<span class='badge-err'>${rec.errors.length}</span>`:''}</td>
+          <td class="right"><button class="btn" onclick="removeFile(${idx})">Eliminar</button>
+              <button class="btn" onclick="previewFile(${idx})">Previsualizar</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function removeFile(idx){ state.files.splice(idx,1); renderFiles(); updateStats(); refreshFilterValuesFromFiles(); }
+
+    function updateStats(){
+      $('#statArchivos').textContent = state.files.length;
+      const totalRows = state.files.reduce((a,f)=>a+(f.rowsCount||0),0);
+      $('#statRegistros').textContent = totalRows;
+      const errFiles = state.files.filter(f=>f.errors && f.errors.length>0).length;
+      $('#statErrores').textContent = errFiles;
+    }
+
+    function refreshFilterValuesFromFiles(){
+      const set = {AREA:new Set(), FY:new Set(), PLAN:new Set()};
+      for(const f of state.files){
+        for(const r of (f.data||[])){
+          if(r.AREA?.trim()) set.AREA.add(r.AREA.trim());
+          if(r.FY?.trim()) set.FY.add(r.FY.trim());
+          if(r.PLAN?.trim()) set.PLAN.add(r.PLAN.trim());
+        }
+      }
+      function fillSelect(id, values){
+        const sel=$(id); const cur=sel.value; sel.innerHTML='<option value="">(Todos)</option>' +
+          Array.from(values).sort().map(v=>`<option>${v}</option>`).join('');
+        const opt = Array.from(sel.options).find(o=>o.value===cur); if(opt) sel.value=cur;
+      }
+      fillSelect('#filterArea', set.AREA);
+      fillSelect('#filterFY', set.FY);
+      fillSelect('#filterPlan', set.PLAN);
+    }
+  </script>
+
+  <!-- ===================
+       Consolidación & Validaciones avanzadas
+  ===================== -->
+  <script>
+    function applyFilters(rows){
+      const {AREA,FY,PLAN} = state.filters;
+      return rows.filter(r=> (
+        (!AREA || String(r.AREA).trim()===AREA) &&
+        (!FY || String(r.FY).trim()===FY) &&
+        (!PLAN || String(r.PLAN).trim()===PLAN)
+      ));
+    }
+
+    function validateAndConsolidate(){
+      if(state.files.length===0){ log('No hay archivos para consolidar.','warn'); return; }
+      const createdBy = $('#inputUsuario').value.trim();
+      if(!createdBy){ log('Debes ingresar el Nombre del Usuario (CreatedBy) antes de consolidar.','err'); return; }
+
+      let allRows=[]; let report=[]; let duplicates=new Set(); let seenSondaje=new Set();
+      let missingCrit=0; let headerIssues=0;
+
+      for(const f of state.files){
+        if(f.errors && f.errors.length){ headerIssues++; report.push(`Archivo ${f.name}: encabezados/parseo con errores.`); continue; }
+        const filtered = applyFilters(f.data);
+        const createdISO = new Date(f.loadedAt).toISOString();
+        filtered.forEach(r=>{
+          const miss = ['SONDAJE','ESTE','NORTE'].filter(k => !String(r[k]??'').trim());
+          if(miss.length){ missingCrit++; report.push(`Falta ${miss.join('/')}: archivo=${f.name}, SONDAJE='${r.SONDAJE??''}'`); }
+          const key = String(r.SONDAJE??'').trim();
+          if(key){ if(seenSondaje.has(key)){ duplicates.add(key); } else { seenSondaje.add(key); } }
+
+          const meta = { Source: f.name, Created: createdISO, CreatedBy: createdBy, UniqueID: nextUID(), Modify: '', ModifiedBy: '' };
+          const ordered = CONSOLIDATED_HEADERS.reduce((obj,h)=>{ obj[h] = METADATA_HEADERS.includes(h) ? meta[h] : (r[h]??''); return obj; },{});
+          allRows.push(ordered);
+        });
+      }
+
+      const totalFiles = state.files.length;
+      const totalRows = allRows.length;
+      const dupList = Array.from(duplicates).sort();
+      const summary = [
+        '==== REPORTE DE VALIDACIÓN ====',
+        `Fecha: ${new Date().toLocaleString()}`,
+        `Archivos cargados: ${totalFiles}`,
+        `Registros (post-filtros): ${totalRows}`,
+        `Archivos con errores de encabezado/parseo: ${headerIssues}`,
+        `Duplicados por SONDAJE: ${dupList.length}${dupList.length? ' -> '+dupList.join(', '):''}`,
+        `Valores faltantes críticos (SONDAJE/ESTE/NORTE): ${missingCrit}`,
+        `Filtros aplicados: AREA='${state.filters.AREA||"*"}', FY='${state.filters.FY||"*"}', PLAN='${state.filters.PLAN||"*"}'`,
+        ''
+      ].join('\n');
+
+      state.validationReport = summary;
+      log('Consolidación finalizada. Generando previsualización y habilitando descargas...','ok');
+
+      state.consolidated = {headers: CONSOLIDATED_HEADERS, rows: allRows};
+      renderPreview();
+      $('#btnDescargarCSV').disabled = totalRows===0;
+      $('#btnDescargarTXT').disabled = false;
+    }
+
+    function renderPreview(){
+      const thead=$('#previewThead'); const tbody=$('#previewTbody');
+      thead.innerHTML = `<tr>${PREVIEW_COLS.map(h=>`<th>${h}</th>`).join('')}</tr>`;
+      tbody.innerHTML='';
+      const rows = state.consolidated?.rows||[];
+      rows.slice(0,50).forEach(r=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML = PREVIEW_COLS.map(h=>`<td>${String(r[h]??'')}</td>`).join('');
+        tbody.appendChild(tr);
+      });
+    }
+
+    function exportCSV(){
+      if(!state.consolidated) return;
+      const rows = state.consolidated.rows;
+      const head = CONSOLIDATED_HEADERS.join(',');
+      const esc = v => {
+        if(v==null) return '';
+        const s=String(v);
+        return /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+      };
+      const body = rows.map(r=> CONSOLIDATED_HEADERS.map(h=> esc(r[h])).join(',')).join('\n');
+      const out = head + '\n' + body + '\n';
+      const d=new Date();
+      const fname = `Consolidado_${d.getFullYear()}${pad(d.getMonth()+1,2)}${pad(d.getDate(),2)}_${pad(d.getHours(),2)}${pad(d.getMinutes(),2)}${pad(d.getSeconds(),2)}.csv`;
+      download(fname, out, 'text/csv;charset=utf-8');
+      log(`⬇️ CSV descargado: ${fname}`,'ok');
+    }
+
+    function exportTXT(){
+      const d=new Date();
+      const fname = `ReporteValidacion_${d.getFullYear()}${pad(d.getMonth()+1,2)}${pad(d.getDate(),2)}_${pad(d.getHours(),2)}${pad(d.getMinutes(),2)}${pad(d.getSeconds(),2)}.txt`;
+      const extra = collectPerFileStats();
+      download(fname, state.validationReport + extra, 'text/plain;charset=utf-8');
+      log(`⬇️ TXT descargado: ${fname}`,'ok');
+    }
+
+    function collectPerFileStats(){
+      const lines=['','==== ESTADÍSTICAS POR ARCHIVO ===='];
+      state.files.forEach(f=>{
+        const areas=new Set(), tipos=new Set(), planes=new Set();
+        for(const r of (f.data||[])){
+          if(r.AREA?.trim()) areas.add(r.AREA.trim());
+          if(r.TIPO_PERFORACION?.trim()) tipos.add(r.TIPO_PERFORACION.trim());
+          if(r.PLAN?.trim()) planes.add(r.PLAN.trim());
+        }
+        lines.push(
+          `Archivo: ${f.name} | Registros: ${f.rowsCount} | Áreas únicas: ${areas.size} | Tipos perf.: ${tipos.size} | Planes: ${planes.size}`
+        );
+      });
+      return lines.join('\n')+'\n';
+    }
+  </script>
+
+  <!-- ===================
+       Eventos UI
+  ===================== -->
+  <script>
+    const dz = $('#dropzone');
+    dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('drag'); });
+    dz.addEventListener('dragleave', ()=> dz.classList.remove('drag'));
+    dz.addEventListener('drop', e=>{ e.preventDefault(); dz.classList.remove('drag'); handleFiles(e.dataTransfer.files); });
+
+    $('#fileInput').addEventListener('change', e=> handleFiles(e.target.files));
+
+    $('#btnConsolidar').addEventListener('click', validateAndConsolidate);
+    $('#btnDescargarCSV').addEventListener('click', exportCSV);
+    $('#btnDescargarTXT').addEventListener('click', exportTXT);
+    $('#btnLimpiar').addEventListener('click', resetAll);
+
+    $('#filterArea').addEventListener('change', e=>{ state.filters.AREA=e.target.value; log(`Filtro AREA: ${state.filters.AREA||'Todos'}`,'warn'); });
+    $('#filterFY').addEventListener('change', e=>{ state.filters.FY=e.target.value; log(`Filtro FY: ${state.filters.FY||'Todos'}`,'warn'); });
+    $('#filterPlan').addEventListener('change', e=>{ state.filters.PLAN=e.target.value; log(`Filtro PLAN: ${state.filters.PLAN||'Todos'}`,'warn'); });
+
+    function previewFile(idx){
+      const f = state.files[idx];
+      if(!f || !f.data || f.data.length===0){ log(`Archivo ${f?.name||idx} no tiene datos para vista previa`,'warn'); return; }
+      const thead=$('#filePreviewThead'); const tbody=$('#filePreviewTbody');
+      thead.innerHTML = `<tr>${PREVIEW_COLS.map(h=>`<th>${h}</th>`).join('')}</tr>`;
+      tbody.innerHTML='';
+      f.data.slice(0,20).forEach(r=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML = PREVIEW_COLS.map(h=>`<td>${String(r[h]??'')}</td>`).join('');
+        tbody.appendChild(tr);
+      });
+      log(`Vista previa de ${f.name}: mostrando 20 registros con columnas seleccionadas.`,'ok');
+    }
+
+    resetAll();
+  </script>
+
+  <!-- ===================
+       Nota: Parser CSV propio
+       — Archivo único y offline. Si prefieres Papa Parse, pega su minificado y reemplaza parseCSV/readAsTextWithEncodings.
+  ===================== -->
+</body>
+</html>
